@@ -1,18 +1,19 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Video Call App</title>
+    <title>Video Call</title>
     <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
     <style>
         body { font-family: sans-serif; text-align: center; background: #111; color: white; }
         video { width: 45%; margin: 10px; border-radius: 10px; background: black; }
         input, button { padding: 10px; margin: 5px; border-radius: 5px; border: none; }
         button { cursor: pointer; }
-        .call-btn { background: #25d366; color: white; }
-        .end-btn { background: #ff4d4d; color: white; }
-        .settings-btn { background: #555; color: white; }
+        .call { background: #25d366; color: white; }
+        .end { background: #ff4d4d; color: white; }
+        .settings { background: #555; color: white; }
 
-        #incoming-call, #name-popup {
+        #popup {
+            display: none;
             position: fixed;
             top: 40%;
             left: 50%;
@@ -21,197 +22,153 @@
             padding: 20px;
             border-radius: 10px;
         }
-
-        #incoming-call { display: none; }
-        #name-popup { display: none; }
     </style>
 </head>
 <body>
 
 <h2 id="welcome"></h2>
-<button class="settings-btn" onclick="changeName()">⚙ Change Name</button>
+<button class="settings" onclick="changeName()">Change Name</button>
 
+<br>
 
+<input id="my-code" placeholder="Your code">
+<button onclick="startPeer()">Start</button>
 
-<h3 id="my-id"></h3>
+<h3 id="status">Not connected</h3>
 
-<hr>
-
-<input type="text" id="target-id" placeholder="Enter friend's code">
-<button class="call-btn" onclick="startCall()">Call</button>
-<button class="end-btn" onclick="endCall()">End Call</button>
+<input id="target" placeholder="Friend code">
+<button class="call" onclick="callUser()">Call</button>
+<button class="end" onclick="endCall()">End</button>
 
 <div>
-    <video id="local-video" autoplay muted playsinline></video>
-    <video id="remote-video" autoplay playsinline></video>
+    <video id="local" autoplay muted playsinline></video>
+    <video id="remote" autoplay playsinline></video>
 </div>
 
-<!-- Incoming Call -->
-<div id="incoming-call">
-    <p id="caller-text"></p>
-    <button onclick="acceptCall()">Accept</button>
-    <button onclick="declineCall()">Decline</button>
-</div>
-
-<!-- Name Popup -->
-<div id="name-popup">
-    <p>Enter your name:</p>
-    <input type="text" id="name-input">
-    <button onclick="saveName()">Save</button>
+<div id="popup">
+    <p id="popup-text"></p>
+    <button onclick="accept()">Accept</button>
+    <button onclick="decline()">Decline</button>
 </div>
 
 <script>
-let peer;
-let localStream;
-let currentCall;
-let incomingCall = null;
-let userName = "";
+let peer, localStream, currentCall, incomingCall;
+let name = "";
 
-// 🔤 Name system
-function checkName() {
-    const saved = localStorage.getItem("username");
-
-    if (saved) {
-        userName = saved;
-        updateWelcome();
+// NAME SYSTEM
+function initName() {
+    const saved = localStorage.getItem("name");
+    if (!saved) {
+        name = prompt("Enter your name:");
+        localStorage.setItem("name", name);
     } else {
-        document.getElementById("name-popup").style.display = "block";
+        name = saved;
     }
-}
-
-function saveName() {
-    const name = document.getElementById("name-input").value;
-    if (!name) return alert("Enter a name");
-
-    localStorage.setItem("username", name);
-    userName = name;
-
-    document.getElementById("name-popup").style.display = "none";
-    updateWelcome();
+    updateName();
 }
 
 function changeName() {
-    document.getElementById("name-popup").style.display = "block";
+    const newName = prompt("New name:");
+    if (!newName) return;
+    name = newName;
+    localStorage.setItem("name", name);
+    updateName();
 }
 
-function updateWelcome() {
-    document.getElementById("welcome").innerHTML = "Welcome, " + userName;
+function updateName() {
+    document.getElementById("welcome").innerText = "Hi, " + name;
 }
 
-// 🔑 Validate code
-function isValidCode(code) {
-    return /^[a-zA-Z0-9_-]{3,20}$/.test(code);
-}
+// MEDIA
+navigator.mediaDevices.getUserMedia({
+    video: { width: 640, height: 480 },
+    audio: { echoCancellation: true, noiseSuppression: true }
+})
+.then(stream => {
+    localStream = stream;
+    document.getElementById("local").srcObject = stream;
+})
+.catch(err => alert("Camera error: " + err));
 
-// Create peer
-function createPeer() {
-    const code = document.getElementById('my-code').value;
+// START PEER
+function startPeer() {
+    const id = document.getElementById("my-code").value;
 
-    if (!isValidCode(code)) {
-        alert("Invalid code");
-        return;
-    }
+    if (!id) return alert("Enter your code first");
 
-    peer = new Peer(code, {
+    peer = new Peer(id, {
         config: {
             iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'turn:relay.metered.ca:443', username: 'metered', credential: 'password' }
+                { urls: "stun:stun.l.google.com:19302" }
             ]
         }
     });
 
-    peer.on('open', id => {
-        document.getElementById('my-id').innerHTML = "Your Code: " + id;
+    peer.on("open", id => {
+        document.getElementById("status").innerText = "Your code: " + id;
     });
 
-    peer.on('error', err => {
-        if (err.type === 'unavailable-id') {
-            alert("Code taken!");
-        } else {
-            alert(err);
-        }
-    });
-
-    // Incoming call
-    peer.on('call', call => {
+    peer.on("call", call => {
         incomingCall = call;
-
-        document.getElementById('incoming-call').style.display = "block";
-        document.getElementById('caller-text').innerHTML =
-            call.peer + " is calling you";
+        document.getElementById("popup").style.display = "block";
+        document.getElementById("popup-text").innerText =
+            call.peer + " is calling";
     });
+
+    peer.on("error", err => alert(err));
 }
 
-// Media
-navigator.mediaDevices.getUserMedia({
-    video: { width: 640, height: 480, frameRate: 24 },
-    audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-    }
-})
-.then(stream => {
-    localStream = stream;
-    document.getElementById('local-video').srcObject = stream;
-})
-.catch(err => alert(err));
+// CALL
+function callUser() {
+    if (!peer) return alert("Start first!");
 
-// Call
-function startCall() {
-    const id = document.getElementById('target-id').value;
-
-    if (!id) return alert("Enter code");
+    const id = document.getElementById("target").value;
+    if (!id) return alert("Enter friend code");
 
     const call = peer.call(id, localStream);
     currentCall = call;
 
-    setupCall(call);
+    setup(call);
 }
 
-// Accept
-function acceptCall() {
-    if (!incomingCall) return;
-
+// ACCEPT
+function accept() {
     currentCall = incomingCall;
     incomingCall.answer(localStream);
+    setup(incomingCall);
 
-    setupCall(incomingCall);
-
-    document.getElementById('incoming-call').style.display = "none";
+    document.getElementById("popup").style.display = "none";
 }
 
-// Decline
-function declineCall() {
+// DECLINE
+function decline() {
     if (incomingCall) incomingCall.close();
     incomingCall = null;
-
-    document.getElementById('incoming-call').style.display = "none";
+    document.getElementById("popup").style.display = "none";
 }
 
-// End call
+// END CALL
 function endCall() {
     if (currentCall) {
         currentCall.close();
         currentCall = null;
-        document.getElementById('remote-video').srcObject = null;
+        document.getElementById("remote").srcObject = null;
     }
 }
 
-// Setup
-function setupCall(call) {
-    call.on('stream', remoteStream => {
-        document.getElementById('remote-video').srcObject = remoteStream;
+// SETUP CALL
+function setup(call) {
+    call.on("stream", stream => {
+        document.getElementById("remote").srcObject = stream;
     });
 
-    call.on('close', () => {
-        document.getElementById('remote-video').srcObject = null;
+    call.on("close", () => {
+        document.getElementById("remote").srcObject = null;
     });
 }
 
-// Init
-checkName();
+// INIT
+initName();
 </script>
 
 </body>
