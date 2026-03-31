@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>3-Digit Video Call (Stable)</title>
+    <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            background: #111;
+            color: white;
+        }
+        video {
+            width: 45%;
+            margin: 10px;
+            border-radius: 10px;
+            background: black;
+        }
+        input, button {
+            padding: 10px;
+            margin: 5px;
+            border-radius: 5px;
+            border: none;
+        }
+        button {
+            background: #25d366;
+            color: white;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<h2>Your Code: <span id="my-id">Generating...</span></h2>
+
+<input type="text" id="target-id" placeholder="Enter 3-digit code">
+<button onclick="startCall()">Call</button>
+
+<div>
+    <video id="local-video" autoplay muted playsinline></video>
+    <video id="remote-video" autoplay playsinline></video>
+</div>
+
+<script>
+let peer;
+let localStream;
+let currentCall;
+
+// 🔢 Generate random 3-digit ID
+function generateID() {
+    return Math.floor(100 + Math.random() * 900).toString();
+}
+
+// 🔁 Create peer with retry if ID taken
+function createPeer() {
+    const id = generateID();
+
+    peer = new Peer(id, {
+        config: {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'turn:relay.metered.ca:443', username: 'metered', credential: 'password' }
+            ]
+        },
+        debug: 2
+    });
+
+    peer.on('open', id => {
+        document.getElementById('my-id').textContent = id;
+    });
+
+    peer.on('error', err => {
+        if (err.type === 'unavailable-id') {
+            createPeer(); // retry
+        } else {
+            alert("Error: " + err);
+        }
+    });
+
+    // 📞 Incoming call
+    peer.on('call', call => {
+        currentCall = call;
+        call.answer(localStream);
+
+        setupCallEvents(call);
+    });
+}
+
+// 🎥 Get camera + mic (optimized)
+navigator.mediaDevices.getUserMedia({
+    video: {
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        frameRate: { ideal: 24, max: 30 }
+    },
+    audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+    }
+})
+.then(stream => {
+    localStream = stream;
+    document.getElementById('local-video').srcObject = stream;
+    createPeer();
+})
+.catch(err => alert("Media error: " + err));
+
+// 📞 Start outgoing call
+function startCall() {
+    const friendId = document.getElementById('target-id').value;
+
+    if (!friendId || friendId.length !== 3) {
+        alert("Enter a valid 3-digit code");
+        return;
+    }
+
+    const call = peer.call(friendId, localStream);
+    currentCall = call;
+
+    setupCallEvents(call);
+}
+
+// ⚙️ Handle call events
+function setupCallEvents(call) {
+
+    call.on('stream', remoteStream => {
+        document.getElementById('remote-video').srcObject = remoteStream;
+    });
+
+    call.on('close', () => {
+        alert("Call ended");
+        document.getElementById('remote-video').srcObject = null;
+    });
+
+    call.on('error', err => {
+        console.error("Call error:", err);
+    });
+
+    // 🔊 Improve audio stability
+    call.peerConnection.onconnectionstatechange = () => {
+        console.log("Connection:", call.peerConnection.connectionState);
+    };
+
+    // 🎯 Force stable audio bitrate
+    setTimeout(() => {
+        const pc = call.peerConnection;
+        pc.getSenders().forEach(sender => {
+            if (sender.track && sender.track.kind === "audio") {
+                const params = sender.getParameters();
+                if (!params.encodings) params.encodings = [{}];
+                params.encodings[0].maxBitrate = 64000;
+                sender.setParameters(params);
+            }
+        });
+    }, 2000);
+}
+
+// ❌ Optional: End call
+function endCall() {
+    if (currentCall) {
+        currentCall.close();
+        document.getElementById('remote-video').srcObject = null;
+    }
+}
+</script>
+
+</body>
+</html>
