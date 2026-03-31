@@ -30,8 +30,7 @@
 <button class="settings" onclick="changeName()">Change Name</button>
 <br>
 
-<button onclick="startPeer()">Start</button>
-<h3 id="status">Not connected</h3>
+<h3 id="status">Connecting...</h3>
 
 <input id="target" placeholder="Friend name/code">
 <button class="call" onclick="callUser()">Call</button>
@@ -52,7 +51,7 @@
 let peer, localStream, currentCall, incomingCall;
 let name = "";
 
-// NAME SYSTEM - also used as Peer code
+// --- NAME SYSTEM ---
 function initName() {
     const saved = localStorage.getItem("name");
     if (!saved) {
@@ -63,18 +62,19 @@ function initName() {
         name = saved;
     }
     document.getElementById("welcome").innerText = "Hi, " + name;
+    startPeer(); // Auto start peer immediately
 }
 
-// Change name
 function changeName() {
     const newName = prompt("Enter new name/code:");
     if (!newName) return;
     name = newName;
     localStorage.setItem("name", name);
     document.getElementById("welcome").innerText = "Hi, " + name;
+    startPeer(); // Restart peer with new name
 }
 
-// MEDIA
+// --- MEDIA ---
 navigator.mediaDevices.getUserMedia({
     video: { width: 640, height: 480 },
     audio: { echoCancellation: true, noiseSuppression: true }
@@ -85,15 +85,14 @@ navigator.mediaDevices.getUserMedia({
 })
 .catch(err => alert("Camera error: " + err));
 
-// START PEER
+// --- PEER ---
 function startPeer() {
-    if (!name) return alert("Set your name first");
+    if (!name) return;
+
+    if (peer) peer.destroy(); // destroy old peer if changing name
+
     peer = new Peer(name, {
-        config: {
-            iceServers: [
-                { urls: "stun:stun.l.google.com:19302" }
-            ]
-        }
+        config: { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] }
     });
 
     peer.on("open", id => {
@@ -110,9 +109,9 @@ function startPeer() {
     peer.on("error", err => alert(err));
 }
 
-// CALL
+// --- CALL ---
 function callUser() {
-    if (!peer) return alert("Start first!");
+    if (!peer) return alert("Peer not ready");
     const id = document.getElementById("target").value;
     if (!id) return alert("Enter friend's name/code");
 
@@ -121,7 +120,7 @@ function callUser() {
     setup(call);
 }
 
-// ACCEPT / DECLINE
+// --- ACCEPT / DECLINE ---
 function accept() {
     currentCall = incomingCall;
     incomingCall.answer(localStream);
@@ -135,7 +134,7 @@ function decline() {
     document.getElementById("popup").style.display = "none";
 }
 
-// END CALL
+// --- END CALL ---
 function endCall() {
     if (currentCall) {
         currentCall.close();
@@ -144,7 +143,7 @@ function endCall() {
     }
 }
 
-// SETUP
+// --- SETUP CALL ---
 function setup(call) {
     call.on("stream", stream => {
         document.getElementById("remote").srcObject = stream;
@@ -154,7 +153,7 @@ function setup(call) {
     });
 }
 
-// INIT
+// --- INIT ---
 initName();
 </script>
 
