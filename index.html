@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Video Call</title>
+    <title>Video Call by Name</title>
     <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
     <style>
         body { font-family: sans-serif; text-align: center; background: #111; color: white; }
@@ -28,15 +28,12 @@
 
 <h2 id="welcome"></h2>
 <button class="settings" onclick="changeName()">Change Name</button>
-
 <br>
 
-<input id="my-code" placeholder="Your code">
 <button onclick="startPeer()">Start</button>
-
 <h3 id="status">Not connected</h3>
 
-<input id="target" placeholder="Friend code">
+<input id="target" placeholder="Friend name/code">
 <button class="call" onclick="callUser()">Call</button>
 <button class="end" onclick="endCall()">End</button>
 
@@ -55,27 +52,25 @@
 let peer, localStream, currentCall, incomingCall;
 let name = "";
 
-// NAME SYSTEM
+// NAME SYSTEM - also used as Peer code
 function initName() {
     const saved = localStorage.getItem("name");
     if (!saved) {
-        name = prompt("Enter your name:");
+        name = prompt("Enter your name/code (letters/numbers only):");
+        if (!name) { alert("Name required"); return; }
         localStorage.setItem("name", name);
     } else {
         name = saved;
     }
-    updateName();
+    document.getElementById("welcome").innerText = "Hi, " + name;
 }
 
+// Change name
 function changeName() {
-    const newName = prompt("New name:");
+    const newName = prompt("Enter new name/code:");
     if (!newName) return;
     name = newName;
     localStorage.setItem("name", name);
-    updateName();
-}
-
-function updateName() {
     document.getElementById("welcome").innerText = "Hi, " + name;
 }
 
@@ -92,11 +87,8 @@ navigator.mediaDevices.getUserMedia({
 
 // START PEER
 function startPeer() {
-    const id = document.getElementById("my-code").value;
-
-    if (!id) return alert("Enter your code first");
-
-    peer = new Peer(id, {
+    if (!name) return alert("Set your name first");
+    peer = new Peer(name, {
         config: {
             iceServers: [
                 { urls: "stun:stun.l.google.com:19302" }
@@ -105,14 +97,14 @@ function startPeer() {
     });
 
     peer.on("open", id => {
-        document.getElementById("status").innerText = "Your code: " + id;
+        document.getElementById("status").innerText = "Your name/code: " + id;
     });
 
     peer.on("call", call => {
         incomingCall = call;
         document.getElementById("popup").style.display = "block";
         document.getElementById("popup-text").innerText =
-            call.peer + " is calling";
+            call.peer + " is calling you";
     });
 
     peer.on("error", err => alert(err));
@@ -121,26 +113,22 @@ function startPeer() {
 // CALL
 function callUser() {
     if (!peer) return alert("Start first!");
-
     const id = document.getElementById("target").value;
-    if (!id) return alert("Enter friend code");
+    if (!id) return alert("Enter friend's name/code");
 
     const call = peer.call(id, localStream);
     currentCall = call;
-
     setup(call);
 }
 
-// ACCEPT
+// ACCEPT / DECLINE
 function accept() {
     currentCall = incomingCall;
     incomingCall.answer(localStream);
     setup(incomingCall);
-
     document.getElementById("popup").style.display = "none";
 }
 
-// DECLINE
 function decline() {
     if (incomingCall) incomingCall.close();
     incomingCall = null;
@@ -156,12 +144,11 @@ function endCall() {
     }
 }
 
-// SETUP CALL
+// SETUP
 function setup(call) {
     call.on("stream", stream => {
         document.getElementById("remote").srcObject = stream;
     });
-
     call.on("close", () => {
         document.getElementById("remote").srcObject = null;
     });
