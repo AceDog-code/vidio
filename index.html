@@ -1,98 +1,151 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>3-Digit Video Call (Stable)</title>
+    <title>Video Call App</title>
     <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
     <style>
-        body {
-            font-family: sans-serif;
-            text-align: center;
-            background: #111;
-            color: white;
-        }
-        video {
-            width: 45%;
-            margin: 10px;
+        body { font-family: sans-serif; text-align: center; background: #111; color: white; }
+        video { width: 45%; margin: 10px; border-radius: 10px; background: black; }
+        input, button { padding: 10px; margin: 5px; border-radius: 5px; border: none; }
+        button { cursor: pointer; }
+        .call-btn { background: #25d366; color: white; }
+        .end-btn { background: #ff4d4d; color: white; }
+        .settings-btn { background: #555; color: white; }
+
+        #incoming-call, #name-popup {
+            position: fixed;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #222;
+            padding: 20px;
             border-radius: 10px;
-            background: black;
         }
-        input, button {
-            padding: 10px;
-            margin: 5px;
-            border-radius: 5px;
-            border: none;
-        }
-        button {
-            background: #25d366;
-            color: white;
-            cursor: pointer;
-        }
+
+        #incoming-call { display: none; }
+        #name-popup { display: none; }
     </style>
 </head>
 <body>
 
-<h2>Your Code: <span id="my-id">Generating...</span></h2>
+<h2 id="welcome"></h2>
+<button class="settings-btn" onclick="changeName()">⚙ Change Name</button>
 
-<input type="text" id="target-id" placeholder="Enter 3-digit code">
-<button onclick="startCall()">Call</button>
+
+
+<h3 id="my-id"></h3>
+
+<hr>
+
+<input type="text" id="target-id" placeholder="Enter friend's code">
+<button class="call-btn" onclick="startCall()">Call</button>
+<button class="end-btn" onclick="endCall()">End Call</button>
 
 <div>
     <video id="local-video" autoplay muted playsinline></video>
     <video id="remote-video" autoplay playsinline></video>
 </div>
 
+<!-- Incoming Call -->
+<div id="incoming-call">
+    <p id="caller-text"></p>
+    <button onclick="acceptCall()">Accept</button>
+    <button onclick="declineCall()">Decline</button>
+</div>
+
+<!-- Name Popup -->
+<div id="name-popup">
+    <p>Enter your name:</p>
+    <input type="text" id="name-input">
+    <button onclick="saveName()">Save</button>
+</div>
+
 <script>
 let peer;
 let localStream;
 let currentCall;
+let incomingCall = null;
+let userName = "";
 
-// 🔢 Generate random 3-digit ID
-function generateID() {
-    return Math.floor(100 + Math.random() * 900).toString();
+// 🔤 Name system
+function checkName() {
+    const saved = localStorage.getItem("username");
+
+    if (saved) {
+        userName = saved;
+        updateWelcome();
+    } else {
+        document.getElementById("name-popup").style.display = "block";
+    }
 }
 
-// 🔁 Create peer with retry if ID taken
-function createPeer() {
-    const id = generateID();
+function saveName() {
+    const name = document.getElementById("name-input").value;
+    if (!name) return alert("Enter a name");
 
-    peer = new Peer(id, {
+    localStorage.setItem("username", name);
+    userName = name;
+
+    document.getElementById("name-popup").style.display = "none";
+    updateWelcome();
+}
+
+function changeName() {
+    document.getElementById("name-popup").style.display = "block";
+}
+
+function updateWelcome() {
+    document.getElementById("welcome").innerHTML = "Welcome, " + userName;
+}
+
+// 🔑 Validate code
+function isValidCode(code) {
+    return /^[a-zA-Z0-9_-]{3,20}$/.test(code);
+}
+
+// Create peer
+function createPeer() {
+    const code = document.getElementById('my-code').value;
+
+    if (!isValidCode(code)) {
+        alert("Invalid code");
+        return;
+    }
+
+    peer = new Peer(code, {
         config: {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'turn:relay.metered.ca:443', username: 'metered', credential: 'password' }
             ]
-        },
-        debug: 2
+        }
     });
 
     peer.on('open', id => {
-        document.getElementById('my-id').textContent = id;
+        document.getElementById('my-id').innerHTML = "Your Code: " + id;
     });
 
     peer.on('error', err => {
         if (err.type === 'unavailable-id') {
-            createPeer(); // retry
+            alert("Code taken!");
         } else {
-            alert("Error: " + err);
+            alert(err);
         }
     });
 
-    // 📞 Incoming call
+    // Incoming call
     peer.on('call', call => {
-        currentCall = call;
-        call.answer(localStream);
+        incomingCall = call;
 
-        setupCallEvents(call);
+        document.getElementById('incoming-call').style.display = "block";
+        document.getElementById('caller-text').innerHTML =
+            call.peer + " is calling you";
     });
 }
 
-// 🎥 Get camera + mic (optimized)
+// Media
 navigator.mediaDevices.getUserMedia({
-    video: {
-        width: { ideal: 640 },
-        height: { ideal: 480 },
-        frameRate: { ideal: 24, max: 30 }
-    },
+    video: { width: 640, height: 480, frameRate: 24 },
     audio: {
         echoCancellation: true,
         noiseSuppression: true,
@@ -102,67 +155,63 @@ navigator.mediaDevices.getUserMedia({
 .then(stream => {
     localStream = stream;
     document.getElementById('local-video').srcObject = stream;
-    createPeer();
 })
-.catch(err => alert("Media error: " + err));
+.catch(err => alert(err));
 
-// 📞 Start outgoing call
+// Call
 function startCall() {
-    const friendId = document.getElementById('target-id').value;
+    const id = document.getElementById('target-id').value;
 
-    if (!friendId || friendId.length !== 3) {
-        alert("Enter a valid 3-digit code");
-        return;
-    }
+    if (!id) return alert("Enter code");
 
-    const call = peer.call(friendId, localStream);
+    const call = peer.call(id, localStream);
     currentCall = call;
 
-    setupCallEvents(call);
+    setupCall(call);
 }
 
-// ⚙️ Handle call events
-function setupCallEvents(call) {
+// Accept
+function acceptCall() {
+    if (!incomingCall) return;
 
+    currentCall = incomingCall;
+    incomingCall.answer(localStream);
+
+    setupCall(incomingCall);
+
+    document.getElementById('incoming-call').style.display = "none";
+}
+
+// Decline
+function declineCall() {
+    if (incomingCall) incomingCall.close();
+    incomingCall = null;
+
+    document.getElementById('incoming-call').style.display = "none";
+}
+
+// End call
+function endCall() {
+    if (currentCall) {
+        currentCall.close();
+        currentCall = null;
+        document.getElementById('remote-video').srcObject = null;
+    }
+}
+
+// Setup
+function setupCall(call) {
     call.on('stream', remoteStream => {
         document.getElementById('remote-video').srcObject = remoteStream;
     });
 
     call.on('close', () => {
-        alert("Call ended");
         document.getElementById('remote-video').srcObject = null;
     });
-
-    call.on('error', err => {
-        console.error("Call error:", err);
-    });
-
-    // 🔊 Improve audio stability
-    call.peerConnection.onconnectionstatechange = () => {
-        console.log("Connection:", call.peerConnection.connectionState);
-    };
-
-    // 🎯 Force stable audio bitrate
-    setTimeout(() => {
-        const pc = call.peerConnection;
-        pc.getSenders().forEach(sender => {
-            if (sender.track && sender.track.kind === "audio") {
-                const params = sender.getParameters();
-                if (!params.encodings) params.encodings = [{}];
-                params.encodings[0].maxBitrate = 64000;
-                sender.setParameters(params);
-            }
-        });
-    }, 2000);
 }
 
-// ❌ Optional: End call
-function endCall() {
-    if (currentCall) {
-        currentCall.close();
-        document.getElementById('remote-video').srcObject = null;
-    }
-}
+// Init
+checkName();
 </script>
 
 </body>
